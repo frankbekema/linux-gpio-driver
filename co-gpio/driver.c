@@ -165,7 +165,7 @@ void gpio_open(struct gpio_device device, int pin, int mode) {
 		gpio_debug_message("gpio_open(): Couldn't export pin");
 		return;
 	}
-	if(!gpio_setmode(device, pin, GPIO_OUT)) {
+	if(!gpio_setmode(device, pin, mode)) {
 		gpio_debug_message("gpio_open(): Couldn't set gpio mode");
 		return;
 	}
@@ -178,15 +178,88 @@ void gpio_close(struct gpio_device device, int pin) {
 	}
 }
 
+int gpio_get_direction(struct gpio_device device, int pin) {
+ 	char* p_pin_string = p_inttstr(device.start_pin + pin);
+	char* p_direction_location = (char*)malloc(0);
+	p_direction_location[0] = '\0';
+	
+	string_buffer_append(&p_direction_location, GPIO_PATH);
+	string_buffer_append(&p_direction_location, "gpio");
+	string_buffer_append(&p_direction_location, p_pin_string);
+	string_buffer_append(&p_direction_location, "/direction");
+
+	if(access(p_direction_location, F_OK) == -1) {
+		gpio_debug_message("gpio_get_direction(): Direction file not found");
+		return GPIO_INVALID;
+	}
+
+	FILE* p_direction_file = fopen(p_direction_location, "r");
+	if(p_direction_file == NULL) {
+		gpio_debug_message("gpio_get_direction(): Direction file could not be opened");
+		return GPIO_INVALID;
+	} 
+
+	size_t size = 8;
+	char* p_direction = (char*)malloc(size);
+	char current_char[1];	
+	size_t current_size = 0;
+
+	while(true) {
+		int successfull_reads = fread(current_char, 1, 1, p_direction_file);
+		if(successfull_reads != 1) {
+			break;
+		}
+		if(isspace(current_char[0])) {
+			p_direction[current_size] = '\0';
+			break;
+		}		
+		p_direction[current_size] = current_char[0];
+		current_size++;
+		if(current_size > size) {
+			size = size * 2;
+			char* p_new_val = (char*)malloc(size);
+			strcat(p_new_val, p_direction);
+			free(p_direction);
+			p_direction = p_new_val;
+		}
+	}
+	int res = 0;		
+	if(strcmp(p_direction, "in") == 0) {
+		res = 1;
+	} else if(strcmp(p_direction, "out") == 0) {
+		res = 2;
+	} else {
+		res = 0;
+	}
+
+	fclose(p_direction_file);
+	free(p_direction_location);
+	free(p_pin_string);
+	free(p_direction);
+
+	if(res == 1) {
+		return GPIO_IN; 
+	} else if (res == 2) {
+		return GPIO_OUT;
+	} else {
+		return GPIO_INVALID;
+	}
+}
+
 void gpio_write(struct gpio_device device, int pin, int value) {
 	char* p_pin_string = p_inttstr(device.start_pin + pin);	
 	char* p_value_location = (char*)malloc(0);
 	p_value_location[0] = '\0';	
-	//TODO CHECK DIRECTION
+
 	string_buffer_append(&p_value_location, GPIO_PATH);
 	string_buffer_append(&p_value_location, "gpio");
 	string_buffer_append(&p_value_location, p_pin_string);
 	string_buffer_append(&p_value_location, "/value");
+	
+	if(gpio_get_direction(device, pin) != GPIO_OUT) {
+		gpio_debug_message("gpio_write(): You can't write on an non OUTPUT pin");
+		return;
+	}
 	
 	if(access(p_value_location, F_OK) == -1) {
 		gpio_debug_message("gpio_write(): Couldn't find the value file");
@@ -210,4 +283,8 @@ void gpio_write(struct gpio_device device, int pin, int value) {
 	free(p_pin_string); 
 	free(p_value_location);
 	free(p_value_string);
+}
+
+int gpio_read(struct gpio_device device, int pin) {
+	return 0;
 }

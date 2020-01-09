@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include "../utils/utils.h"
 
 #define GPIO_PATH "/sys/class/gpio/"
@@ -20,7 +21,7 @@
 #define GPIO_OUT 1
 #define GPIO_LOW 0
 #define GPIO_HIGH 1
-
+#define GPIO_INVALID 2
 // Struct for an GPIO device
 struct gpio_device {
 	const char * name;
@@ -30,13 +31,14 @@ struct gpio_device {
 
 void gpio_debug_message(const char * message);
 bool gpio_check_device(struct gpio_device device);
-const char * p_gpio_pin_folder_string(struct gpio_device device, int pin);
+const char* p_gpio_pin_folder_string(struct gpio_device device, int pin);
 struct gpio_device* gpio_get_device(char const * name, int start_pin);
 bool gpio_export(int pin_number);
 bool gpio_unexport(int pin_number);
 bool gpio_setmode(struct gpio_device device, int pin, int mode);
 void gpio_open(struct gpio_device device, int pin, int mode);
 void gpio_close(struct gpio_device device, int pin);
+int gpio_get_direction(struct gpio_device, int pin);
 void gpio_write(struct gpio_device, int pin, int value);
-
+int gpio_read(struct gpio_device device, int pin);
 #endif
