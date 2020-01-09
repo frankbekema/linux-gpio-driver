@@ -1,6 +1,6 @@
 /*
 	This file implements all the function needed to acces the GPIO pins
-	on a Raspberry PI.
+	o a Raspberry PI.
 
 	This file is written by Frank Bekema, All rights are reserved.
 */
@@ -71,11 +71,18 @@ bool gpio_export(int pin_number) {
 	char export_file_path[strlen(GPIO_PATH) + 5];
 	strcpy(export_file_path, GPIO_PATH);
 	strcat(export_file_path, "export");
+	
+	if(access(export_file_path, F_OK) == -1) {
+		gpio_debug_message("gpio_export(): File does not exist");
+		return false;
+	}
+
 	FILE* p_export_file = fopen(export_file_path, "w");
 	if(p_export_file == NULL) {
 		gpio_debug_message("gpio_export(): Couldn't open export file");
 		return false;
 	}
+
 	int gpio_pin_count = digit_count(pin_number);
         char gpio_pin_string[gpio_pin_count];
 	sprintf(gpio_pin_string, "%d", pin_number);
@@ -92,6 +99,12 @@ bool gpio_unexport(int pin_number) {
 	char unexport_file_path[strlen(GPIO_PATH) + 8];
 	strcpy(unexport_file_path, GPIO_PATH);
 	strcat(unexport_file_path, "unexport");
+
+	if(access(unexport_file_path, F_OK) == -1) {
+		gpio_debug_message("gpio_unexport(): File does not exist");
+		return false;
+	}
+
 	FILE* p_unexport_file = fopen(unexport_file_path, "w");
 	if(p_unexport_file == NULL) {
 		gpio_debug_message("gpio_unexport(): Couldn't open unexport file");
@@ -123,10 +136,15 @@ bool gpio_setmode(struct gpio_device device, int pin, int mode) {
 	}
 	const char* p_folder_string = p_gpio_pin_folder_string(device, pin);	
 	const char* p_direct_folder = p_string_append(p_folder_string, "direction");	
-
+	
+	if(access(p_direct_folder, F_OK) == -1) {
+		gpio_debug_message("gpio_setmode(): Direction file was not found");
+		return false;
+	}
+	
 	FILE* p_direction_file = fopen(p_direct_folder, "w");
 	if(p_direction_file == NULL) {
-		gpio_debug_message("gpio_setmode(): Direction file was not found");
+		gpio_debug_message("gpio_setmode(): Couldn't open direction file");
 		return false;
 	}
 	size_t write_amount = fwrite(p_mode_text, strlen(p_mode_text), 1, p_direction_file);
@@ -161,5 +179,35 @@ void gpio_close(struct gpio_device device, int pin) {
 }
 
 void gpio_write(struct gpio_device device, int pin, int value) {
+	char* p_pin_string = p_inttstr(device.start_pin + pin);	
+	char* p_value_location = (char*)malloc(0);
+	p_value_location[0] = '\0';	
+	//TODO CHECK DIRECTION
+	string_buffer_append(&p_value_location, GPIO_PATH);
+	string_buffer_append(&p_value_location, "gpio");
+	string_buffer_append(&p_value_location, p_pin_string);
+	string_buffer_append(&p_value_location, "/value");
+	
+	if(access(p_value_location, F_OK) == -1) {
+		gpio_debug_message("gpio_write(): Couldn't find the value file");
+		return;
+	}
+	
+	FILE* value_file = fopen(p_value_location, "w");
+	if(value_file == NULL) {
+		gpio_debug_message("gpio_write(): Couldn't open value file.");
+		return;
+	}
+	
+	char* p_value_string = p_inttstr(value);
+	int successfull_writes = fwrite(p_value_string, strlen(p_value_string), 1, value_file);
+	if(successfull_writes < 1) {
+		gpio_debug_message("gpio_write(): Couldn't write to value file.");
+		return;
+	}
 
+	fclose(value_file);
+	free(p_pin_string); 
+	free(p_value_location);
+	free(p_value_string);
 }
