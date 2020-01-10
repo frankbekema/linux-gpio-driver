@@ -38,6 +38,7 @@ bool gpio_unexport(int pin_number);
 bool gpio_setmode(struct gpio_device device, int pin, int mode);
 void gpio_open(struct gpio_device device, int pin, int mode);
 void gpio_close(struct gpio_device device, int pin);
+bool gpio_file_extractor(char** result, FILE* file);
 int gpio_get_direction(struct gpio_device, int pin);
 void gpio_write(struct gpio_device, int pin, int value);
 int gpio_read(struct gpio_device device, int pin);
