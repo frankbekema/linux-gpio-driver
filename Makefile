@@ -4,18 +4,21 @@ OBJDIR=obj
 LIBS=-lm
 
 all: $(OBJDIR)/utils.o $(OBJDIR)/co-gpio.o $(OBJDIR)/main.o
-	 $(CC) $(OBJDIR)/utils.o $(OBJDIR)/co-gpio.o $(OBJDIR)/main.o -o driver $(CFLAGS) $(LIBS)
+	cc $(OBJDIR)/utils.o $(OBJDIR)/co-gpio.o $(OBJDIR)/main.o -o driver $(CFLAGS) $(LIBS)
+
+lib: $(OBJDIR)/utils.o $(OBJDIR)/co-gpio.o 
+	cc $(OBJDIR)/utils.o $(OBJDIR)/co-gpio.o -L. -llib/co-gpio
 
 rebuild: clean all
 
 $(OBJDIR)/utils.o: utils/utils.h utils/utils.c
-	$(CC) -c -o $@ utils/utils.c $(CFLAGS)
+	cc -o $@ -c utils/utils.c $(CFLAGS)
 
 $(OBJDIR)/co-gpio.o: co-gpio/driver.h co-gpio/driver.c
-	$(CC) -c -o $@ co-gpio/driver.c $(CFLAGS)
+	cc -o $@ -c co-gpio/driver.c $(CFLAGS)
 
 $(OBJDIR)/main.o: main.c
-	$(CC) -c -o $@ $< $(CFLAGS)
+	cc -o $@ -c main.c $(CFLAGS)
 
 clean:
 	rm -R driver obj/*

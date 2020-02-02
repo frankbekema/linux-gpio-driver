@@ -11,11 +11,36 @@ void gpio_debug_message(const char * message) {
 	printf("co-gpio debug: %s\n", message);
 }
 
-bool gpio_check_device(struct gpio_device device) {
-	return false;
+bool gpio_check_pin(gpio_pin* pin) {
+	if(pin == NULL) {
+		gpio_debug_message("gpio_check_pin(): The provided gpio pin is invalid.");
+		return false;
+	}
+
+	if(!pin->initialized) {
+		gpio_debug_message("gpio_check_pin(): The provided gpio pin is not initialized.");
+		return false;
+	}
+	if(!gpio_check_device(pin->device)) {
+		gpio_debug_message("gpio_check_pin(): The provided device is not valid");
+		return false;
+	}
+	return true;
 }
 
-const char * p_gpio_pin_folder_string(struct gpio_device device, int pin) {
+bool gpio_check_device(gpio_device device) {
+	if(!device.initialized) {
+		gpio_debug_message("gpio_check_device(): The device is not initialized");
+		return false;
+	}
+	return true;
+}
+
+const char * p_gpio_pin_folder_string(gpio_device device, int pin) {
+	if(!gpio_check_device(device)) {
+		gpio_debug_message("p_gpio_pin_folder_string(): GPIO device not valid");
+		return NULL;
+	}
 	int gpio_number_string_length = digit_count(device.start_pin + pin);
 	char gpio_number_string[gpio_number_string_length];
 	sprintf(gpio_number_string, "%d", device.start_pin + pin);
@@ -29,7 +54,7 @@ const char * p_gpio_pin_folder_string(struct gpio_device device, int pin) {
 	return gpio_folder;
 }
 
-struct gpio_device* gpio_get_device(char const * name, int start_pin) {	
+gpio_device* gpio_get_device(char const * name, int start_pin) {	
 	char gpio_folder[strlen(GPIO_PATH) + strlen(name)];
 	strcpy(gpio_folder, GPIO_PATH);
 	strcat(gpio_folder, name);
@@ -60,10 +85,11 @@ struct gpio_device* gpio_get_device(char const * name, int start_pin) {
 	
 	fclose(p_pin_amount_file);
 
-	struct gpio_device* device = (struct gpio_device *) malloc(sizeof(struct gpio_device));
+	gpio_device* device = (gpio_device*) malloc(sizeof(gpio_device));
 	device->name = name;
 	device->start_pin = start_pin;
 	device->pin_amount = atoi(pin_amount);
+	device->initialized = true;
 	return device;
 }
 
@@ -122,7 +148,11 @@ bool gpio_unexport(int pin_number) {
 	return true;
 }
 
-bool gpio_setmode(struct gpio_device device, int pin, int mode) {
+bool gpio_setmode(gpio_pin* pin, int mode) {	
+	if(!gpio_check_pin(pin)) {
+		gpio_debug_message("gpio_setmode(): Pin is invalid");
+		return false;
+	}
 	char* p_mode_text;
 	if(mode == GPIO_IN) {
 		p_mode_text = (char*)malloc(3);
@@ -134,7 +164,8 @@ bool gpio_setmode(struct gpio_device device, int pin, int mode) {
 		gpio_debug_message("gpio_setmode(): No valid GPIO mode was passed");
 		return false;
 	}
-	const char* p_folder_string = p_gpio_pin_folder_string(device, pin);	
+
+	const char* p_folder_string = p_gpio_pin_folder_string(pin->device, pin->pin_number);	
 	const char* p_direct_folder = p_string_append(p_folder_string, "direction");	
 	
 	if(access(p_direct_folder, F_OK) == -1) {
@@ -151,7 +182,9 @@ bool gpio_setmode(struct gpio_device device, int pin, int mode) {
 	if(write_amount < 0) {
 		gpio_debug_message("gpio_setmode(): Couldn't write to export file");
 		return false;
-	} 
+	}
+
+	pin->mode = mode; 
 
 	free(p_mode_text);
 	free((char*)p_folder_string);
@@ -160,22 +193,47 @@ bool gpio_setmode(struct gpio_device device, int pin, int mode) {
 	return true;
 }
 
-void gpio_open(struct gpio_device device, int pin, int mode) {
-	if(!gpio_export(device.start_pin + pin)) {
-		gpio_debug_message("gpio_open(): Couldn't export pin");
-		return;
+gpio_pin* p_gpio_open(gpio_device* device, int pin, int mode) {
+	if(!gpio_check_device(*device)) {
+		gpio_debug_message("p_gpio_open(): Device is not valid");
+		return NULL;
 	}
-	if(!gpio_setmode(device, pin, mode)) {
-		gpio_debug_message("gpio_open(): Couldn't set gpio mode");
-		return;
+	if(mode != GPIO_IN && mode != GPIO_OUT) {
+		mode = GPIO_IN;
 	}
+	if(!gpio_export(device->start_pin + pin)) {
+		gpio_debug_message("p_gpio_open(): Couldn't export pin");
+		return NULL;
+	}
+	gpio_pin* p_pin = (gpio_pin*) malloc(sizeof(gpio_pin));
+	p_pin->device = *device;
+	p_pin->pin_number = pin;	
+	p_pin->initialized = true;
+	if(mode == GPIO_IN || mode == GPIO_OUT) {
+		if(!gpio_setmode(p_pin, mode)) {
+			gpio_unexport(device->start_pin + pin);
+			free(p_pin);
+			gpio_debug_message("p_gpio_open(): Couldn't set gpio mode");
+			return NULL;
+		}	
+	}
+	if(mode == GPIO_OUT) {
+		gpio_write(p_pin, GPIO_LOW);	
+	}
+	return p_pin;
 }
 
-void gpio_close(struct gpio_device device, int pin) {
-	if(!gpio_unexport(device.start_pin + pin)) {
-		gpio_debug_message("gpio_close(): Couldn't unexport pin");
-		return;
+bool gpio_close(gpio_pin* pin) {	
+	if(!gpio_check_pin(pin)) {
+		gpio_debug_message("gpio_close(): Check if the pin is valid");
+		return false;
 	}
+	if(!gpio_unexport(pin->device.start_pin + pin->pin_number)) {
+		gpio_debug_message("gpio_close(): Couldn't unexport pin");
+		return false;
+	}
+	free(pin);
+	return true;
 }
 
 bool gpio_file_extractor(char** result, FILE* file) {	
@@ -208,8 +266,12 @@ bool gpio_file_extractor(char** result, FILE* file) {
 	return true;
 }
 
-int gpio_get_direction(struct gpio_device device, int pin) {
- 	char* p_pin_string = p_inttstr(device.start_pin + pin);
+int gpio_get_direction(gpio_pin* pin) {	
+	if(!gpio_check_pin(pin)) {
+		gpio_debug_message("gpio_get_direction(): Pin is invalid");
+		return GPIO_INVALID;
+	}
+ 	char* p_pin_string = p_inttstr(pin->device.start_pin + pin->pin_number);
 	char* p_direction_location = (char*)malloc(0);
 	p_direction_location[0] = '\0';
 	
@@ -255,8 +317,12 @@ int gpio_get_direction(struct gpio_device device, int pin) {
 	}
 }
 
-void gpio_write(struct gpio_device device, int pin, int value) {
-	char* p_pin_string = p_inttstr(device.start_pin + pin);	
+void gpio_write(gpio_pin* pin, int value) {	
+	if(!gpio_check_pin(pin)) {
+		gpio_debug_message("gpio_write(): Pin is invalid");
+		return;
+	}
+	char* p_pin_string = p_inttstr(pin->device.start_pin + pin->pin_number);	
 	char* p_value_location = (char*)malloc(0);
 	p_value_location[0] = '\0';	
 
@@ -265,7 +331,7 @@ void gpio_write(struct gpio_device device, int pin, int value) {
 	string_buffer_append(&p_value_location, p_pin_string);
 	string_buffer_append(&p_value_location, "/value");
 	
-	if(gpio_get_direction(device, pin) != GPIO_OUT) {
+	if(gpio_get_direction(pin) != GPIO_OUT) {
 		gpio_debug_message("gpio_write(): You can't write on an non OUTPUT pin");
 		return;
 	}
@@ -294,8 +360,12 @@ void gpio_write(struct gpio_device device, int pin, int value) {
 	free(p_value_string);
 }
 
-int gpio_read(struct gpio_device device, int pin) {
-	char* p_pin_string = p_inttstr(device.start_pin + pin);
+int gpio_read(gpio_pin* pin) {	
+	if(!gpio_check_pin(pin)) {
+		gpio_debug_message("gpio_read(): Pin is invalid");
+		return -1;
+	}
+	char* p_pin_string = p_inttstr(pin->device.start_pin + pin->pin_number);
 	char* p_value_location = (char*)malloc(0);
 	p_value_location[0] = '\0';
 	string_buffer_append(&p_value_location, GPIO_PATH);
@@ -303,7 +373,7 @@ int gpio_read(struct gpio_device device, int pin) {
 	string_buffer_append(&p_value_location, p_pin_string);
 	string_buffer_append(&p_value_location, "/value");
 	
-	if(gpio_get_direction(device, pin) != GPIO_IN) {
+	if(gpio_get_direction(pin) != GPIO_IN) {
 		gpio_debug_message("gpio_write(): You can't read from a non INPUT pin");
 		return -1;
 	}
@@ -320,7 +390,10 @@ int gpio_read(struct gpio_device device, int pin) {
 	} 
 
 	char* p_result;
-	gpio_file_extractor(&p_result, p_value_file);
+	if(!gpio_file_extractor(&p_result, p_value_file)) {
+		gpio_debug_message("gpio_read(): Something went wrong at reading the file");
+		return -1;
+	}
 	
 	int int_result = atoi(p_result);
 
@@ -329,4 +402,49 @@ int gpio_read(struct gpio_device device, int pin) {
 	free(p_value_location);
 	free(p_pin_string);
 	return int_result;
+}
+
+bool gpio_set_active_low(gpio_pin* pin, int active_low) {
+	if(!gpio_check_pin(pin)) {
+		gpio_debug_message("gpio_set_active_low(): GPIO pin is invalid");
+		return false;
+	}
+	char* p_pin_string = p_inttstr(pin->device.start_pin + pin->pin_number);
+	char* p_value_location = (char*)malloc(0);
+	p_value_location[0] = '\0';
+	string_buffer_append(&p_value_location, GPIO_PATH);
+	string_buffer_append(&p_value_location, "gpio");
+	string_buffer_append(&p_value_location, p_pin_string);
+	string_buffer_append(&p_value_location, "/active_low");
+
+	if(access(p_value_location, F_OK) == -1) {
+		gpio_debug_message("gpio_set_active_low(): File could not be found");
+		return false;
+	}
+
+	FILE* p_value_file = fopen(p_value_location, "w");
+	if(p_value_file == NULL) {
+		gpio_debug_message("gpio_set_active_low(): File could not be opened");
+		return false;
+	}
+	
+	char* p_value_string = p_inttstr(active_low); 
+	int successfull_writes = fwrite(p_value_string, strlen(p_value_string), 1, p_value_file);
+	if(successfull_writes < 1) {
+		gpio_debug_message("gpio_set_active_low(): Failed to write to file");
+		return false;
+	}
+	
+	pin->active_low = active_low;
+
+	fclose(p_value_file);
+	free(p_value_string);
+	free(p_value_location);
+	free(p_pin_string);
+
+	return true;
+}
+
+bool set_edge(gpio_pin* pin, int edge) {
+	
 }
