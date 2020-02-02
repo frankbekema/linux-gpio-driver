@@ -31,6 +31,10 @@ make shared
 
 Besides this you can always include the source files in your C application.
 
+## References
+The library is based on the reference from kernel.org
+- [https://www.kernel.org/doc/Documentation/gpio/sysfs.txt](https://www.kernel.org/doc/Documentation/gpio/sysfs.txt)
+
 ## License
 This project is licensed under the [MIT license](https://opensource.org/licenses/MIT)
 
