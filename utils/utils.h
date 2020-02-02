@@ -12,7 +12,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-const char* p_string_append(const char* string1, const char* string2);
+char* p_string_append(const char* string1, const char* string2);
 void string_buffer_append(char** buffer, const char* string);
 int digit_count(int number);
 char* p_inttstr(int number);

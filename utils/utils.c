@@ -6,7 +6,7 @@
 
 #include "utils.h"
 
-const char* p_string_append(const char* string1, const char * string2) {
+char* p_string_append(const char* string1, const char * string2) {
 	char* string_result = (char*)malloc(strlen(string1) + strlen(string2));
 	strcpy(string_result, string1);
 	strcat(string_result, string2);

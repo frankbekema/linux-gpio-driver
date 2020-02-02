@@ -36,7 +36,7 @@ bool gpio_check_device(gpio_device device) {
 	return true;
 }
 
-const char * p_gpio_pin_folder_string(gpio_device device, int pin) {
+char* p_gpio_pin_folder_string(gpio_device device, int pin) {
 	int gpio_number_string_length;
 	int gpio_folder_strlen;
 	char* gpio_folder;
@@ -88,6 +88,7 @@ gpio_device* gpio_get_device(char const * name, int start_pin) {
 	successfull_reads = fread(pin_amount, 1, length, p_pin_amount_file);
 	if(successfull_reads < 1) {
 		gpio_debug_message("gpio_get_device(): Couldn't read the file");
+		fclose(p_pin_amount_file);
 		return NULL;
 	}
 	
@@ -127,6 +128,7 @@ bool gpio_export(int pin_number) {
 	write_amount = fwrite(gpio_pin_string, gpio_pin_count, 1, p_export_file);
 	if(write_amount < 1) {
 		gpio_debug_message("gpio_export(): Couldn't write to export file");
+		fclose(p_export_file);
 		return false;
 	}
 	fclose(p_export_file);
@@ -158,6 +160,7 @@ bool gpio_unexport(int pin_number) {
 	write_amount = fwrite(gpio_pin_string, gpio_pin_strlen, 1, p_unexport_file);
 	if(write_amount < 1) {
 		gpio_debug_message("gpio_unexport(): Couldn't write to unexport file");
+		fclose(p_unexport_file);
 		return false;
 	}
 	fclose(p_unexport_file);
@@ -166,8 +169,8 @@ bool gpio_unexport(int pin_number) {
 
 bool gpio_setmode(gpio_pin* pin, int mode) {	
 	char* p_mode_text;
-	const char* p_folder_string;
-	const char* p_direct_folder;
+	char* p_folder_string;
+	char* p_direct_folder;
 	FILE* p_direction_file;
 	size_t write_amount;
 
@@ -187,30 +190,40 @@ bool gpio_setmode(gpio_pin* pin, int mode) {
 		return false;
 	}
 
-	p_folder_string = p_gpio_pin_folder_string(pin->device, pin->pin_number);	
+	p_folder_string = p_gpio_pin_folder_string(pin->device, pin->pin_number);
 	p_direct_folder = p_string_append(p_folder_string, "direction");	
 	
 	if(access(p_direct_folder, F_OK) == -1) {
 		gpio_debug_message("gpio_setmode(): Direction file was not found");
+		free(p_mode_text);
+		free(p_folder_string);
+		free(p_direct_folder);
 		return false;
 	}
 	
 	p_direction_file = fopen(p_direct_folder, "w");
 	if(p_direction_file == NULL) {
 		gpio_debug_message("gpio_setmode(): Couldn't open direction file");
+		free(p_mode_text);
+		free(p_folder_string);
+		free(p_direct_folder);
 		return false;
 	}
 	write_amount = fwrite(p_mode_text, strlen(p_mode_text), 1, p_direction_file);
 	if(write_amount < 0) {
 		gpio_debug_message("gpio_setmode(): Couldn't write to export file");
+		free(p_mode_text);
+		free(p_folder_string);
+		free(p_direct_folder);
+		fclose(p_direction_file);
 		return false;
 	}
 
 	pin->mode = mode; 
 
 	free(p_mode_text);
-	free((char*)p_folder_string);
-	free((char*)p_direct_folder);
+	free(p_folder_string);
+	free(p_direct_folder);
 	fclose(p_direction_file);
 	return true;
 }
@@ -231,8 +244,16 @@ gpio_pin* p_gpio_open(gpio_device* device, int pin, int mode) {
 	}
 	p_pin = (gpio_pin*) malloc(sizeof(gpio_pin));
 	p_pin->device = *device;
-	p_pin->pin_number = pin;	
+	p_pin->pin_number = pin;
+	p_pin->edge = 0;	
 	p_pin->initialized = true;
+	if(gpio_has_edge(p_pin)) {
+		if(!gpio_set_edge(p_pin, GPIO_EDGE_NONE)) {
+			gpio_debug_message("p_gpio_open(): Couldn't set the edge");
+			free(p_pin);
+			return NULL;
+		}
+	}
 	if(mode == GPIO_IN || mode == GPIO_OUT) {
 		if(!gpio_setmode(p_pin, mode)) {
 			gpio_unexport(device->start_pin + pin);
@@ -250,10 +271,12 @@ gpio_pin* p_gpio_open(gpio_device* device, int pin, int mode) {
 bool gpio_close(gpio_pin* pin) {	
 	if(!gpio_check_pin(pin)) {
 		gpio_debug_message("gpio_close(): Check if the pin is valid");
+		free(pin);
 		return false;
 	}
 	if(!gpio_unexport(pin->device.start_pin + pin->pin_number)) {
 		gpio_debug_message("gpio_close(): Couldn't unexport pin");
+		free(pin);
 		return false;
 	}
 	free(pin);
@@ -318,12 +341,17 @@ int gpio_get_direction(gpio_pin* pin) {
 
 	if(access(p_direction_location, F_OK) == -1) {
 		gpio_debug_message("gpio_get_direction(): Direction file not found");
+		free(p_direction_location);
+		free(p_pin_string);	
 		return GPIO_INVALID;
 	}
 
 	p_direction_file = fopen(p_direction_location, "r");
 	if(p_direction_file == NULL) {
 		gpio_debug_message("gpio_get_direction(): Direction file could not be opened");
+		
+		free(p_direction_location);
+		free(p_pin_string);
 		return GPIO_INVALID;
 	}
 		
@@ -373,17 +401,23 @@ void gpio_write(gpio_pin* pin, int value) {
 	
 	if(gpio_get_direction(pin) != GPIO_OUT) {
 		gpio_debug_message("gpio_write(): You can't write on an non OUTPUT pin");
+		free(p_pin_string); 
+		free(p_value_location);	
 		return;
 	}
 	
 	if(access(p_value_location, F_OK) == -1) {
 		gpio_debug_message("gpio_write(): Couldn't find the value file");
+		free(p_pin_string); 
+		free(p_value_location);
 		return;
 	}
 	
 	value_file = fopen(p_value_location, "w");
 	if(value_file == NULL) {
 		gpio_debug_message("gpio_write(): Couldn't open value file.");
+		free(p_pin_string); 
+		free(p_value_location);
 		return;
 	}
 	
@@ -391,6 +425,10 @@ void gpio_write(gpio_pin* pin, int value) {
 	successfull_writes = fwrite(p_value_string, strlen(p_value_string), 1, value_file);
 	if(successfull_writes < 1) {
 		gpio_debug_message("gpio_write(): Couldn't write to value file.");
+		fclose(value_file);
+		free(p_pin_string); 
+		free(p_value_location);
+		free(p_value_string);
 		return;
 	}
 
@@ -420,23 +458,34 @@ int gpio_read(gpio_pin* pin) {
 	string_buffer_append(&p_value_location, "/value");
 	
 	if(gpio_get_direction(pin) != GPIO_IN) {
-		gpio_debug_message("gpio_write(): You can't read from a non INPUT pin");
+		gpio_debug_message("gpio_write(): You can't read from a non INPUT pin");	
+		free(p_value_location);
+		free(p_pin_string);
 		return -1;
 	}
 
 	if(access(p_value_location, F_OK) == -1) {
-		gpio_debug_message("gpio_read(): File could not be found");
+		gpio_debug_message("gpio_read(): File could not be found");	
+		free(p_value_location);
+		free(p_pin_string);
 		return -1;
 	}
 
 	p_value_file = fopen(p_value_location, "r");
 	if(p_value_file == NULL) {
 		gpio_debug_message("gpio_read(): File could not be opened");
+		
+		free(p_value_location);
+		free(p_pin_string);
 		return -1;
 	} 
 
 	if(!gpio_file_extractor(&p_result, p_value_file)) {
 		gpio_debug_message("gpio_read(): Something went wrong at reading the file");
+		
+		fclose(p_value_file);
+		free(p_value_location);
+		free(p_pin_string);
 		return -1;
 	}
 	
@@ -470,12 +519,16 @@ bool gpio_set_active_low(gpio_pin* pin, int active_low) {
 
 	if(access(p_value_location, F_OK) == -1) {
 		gpio_debug_message("gpio_set_active_low(): File could not be found");
+		free(p_value_location);
+		free(p_pin_string);
 		return false;
 	}
 
 	p_value_file = fopen(p_value_location, "w");
 	if(p_value_file == NULL) {
-		gpio_debug_message("gpio_set_active_low(): File could not be opened");
+		gpio_debug_message("gpio_set_active_low(): File could not be opened")	;
+		free(p_value_location);
+		free(p_pin_string);
 		return false;
 	}
 	
@@ -483,6 +536,10 @@ bool gpio_set_active_low(gpio_pin* pin, int active_low) {
 	successfull_writes = fwrite(p_value_string, strlen(p_value_string), 1, p_value_file);
 	if(successfull_writes < 1) {
 		gpio_debug_message("gpio_set_active_low(): Failed to write to file");
+		fclose(p_value_file);
+		free(p_value_string);
+		free(p_value_location);
+		free(p_pin_string);
 		return false;
 	}
 	
@@ -496,14 +553,46 @@ bool gpio_set_active_low(gpio_pin* pin, int active_low) {
 	return true;
 }
 
+bool gpio_has_edge(gpio_pin* pin) {
+	char* p_pin_string;
+	char* p_edge_location;
+	p_pin_string = p_inttstr(pin->device.start_pin + pin->pin_number);
+
+	p_edge_location = (char*)malloc(0);
+	p_edge_location[0] = '\0';
+	string_buffer_append(&p_edge_location, GPIO_PATH);
+	string_buffer_append(&p_edge_location, "gpio");
+	string_buffer_append(&p_edge_location, p_pin_string);
+	string_buffer_append(&p_edge_location, "/edge");
+	
+	if(access(p_edge_location, F_OK) == 0) {
+		free(p_pin_string);
+		free(p_edge_location);
+		return true;
+	} else {
+		free(p_pin_string);
+		free(p_edge_location);
+		return false;
+	}
+}
+
 bool gpio_set_edge(gpio_pin* pin, int edge) {	
 	char* p_pin_string;
 	char* p_edge_location;	
+	const char* edge_string;
 	FILE* p_edge_file;
 	int successfull_writes;
-
+	
+	if(!gpio_has_edge) {
+		gpio_debug_message("gpio_set_edge(): This pin doesn't have support to 					      be an interrupt generating input pin");
+		free(p_pin_string);
+		free(p_edge_location);
+		return false;
+	}
 	if(!gpio_check_pin(pin)) {
 		gpio_debug_message("gpio_set_edge(): GPIO pin is invalid");
+		free(p_pin_string);
+		free(p_edge_location);
 		return false;
 	}
 	if(edge != GPIO_EDGE_NONE && 
@@ -512,6 +601,8 @@ bool gpio_set_edge(gpio_pin* pin, int edge) {
 	   edge != GPIO_EDGE_BOTH) 
 	{
 		gpio_debug_message("gpio_set_edge(): Edge is not valid");
+		free(p_pin_string);
+		free(p_edge_location);
 		return false;
 	}	
 	p_pin_string = p_inttstr(pin->device.start_pin + pin->pin_number);
@@ -525,18 +616,24 @@ bool gpio_set_edge(gpio_pin* pin, int edge) {
 	if(access(p_edge_location, F_OK) == -1)
 	{
 		gpio_debug_message("gpio_set_edge(): File could not be found");
+		free(p_pin_string);
+		free(p_edge_location);
 		return false;
 	}
 
-	const char* edge_string = gpio_get_edge_string(edge);
+	edge_string = gpio_get_edge_string(edge);
 	if(edge_string == NULL) {
 		gpio_debug_message("gpio_set_edge(): Failed to retrive edge string");
+		free(p_pin_string);
+		free(p_edge_location);
 		return false;
 	} 
 	
 	p_edge_file = fopen(p_edge_location, "w");
 	if(p_edge_file == NULL) {
 		gpio_debug_message("gpio_set_edge(): File could not be opened");
+		free(p_pin_string);
+		free(p_edge_location);
 		return false;
 	}
 	 
@@ -544,6 +641,9 @@ bool gpio_set_edge(gpio_pin* pin, int edge) {
 	
 	if(successfull_writes < 1) {
 		gpio_debug_message("gpio_set_edge(): Failed to write to file");
+		fclose(p_edge_file);	
+		free(p_pin_string);
+		free(p_edge_location);
 		return false;
 	}
 
@@ -596,12 +696,16 @@ void gpio_poll(gpio_pin* pin) {
 	if(access(p_value_location, F_OK) == -1)
 	{
 		gpio_debug_message("gpio_poll(): File could not be found");
+		free(p_pin_string);
+		free(p_value_location);
 		return;
 	}
 	 	
 	fds[0].fd = open(p_value_location, O_RDONLY);
 	if(fds[0].fd == -1) {
 		gpio_debug_message("gpio_poll(): Failed opening file");
+		free(p_pin_string);
+		free(p_value_location);
 		return;
 	}
 	fds[0].events = POLLPRI | POLLERR;
@@ -613,8 +717,10 @@ void gpio_poll(gpio_pin* pin) {
 	
 	if(close(fds[0].fd) != 0) {
 		gpio_debug_message("gpio_poll(): Failed closing file");
+		free(p_pin_string);
+		free(p_value_location);
 		return;
 	}
 	free(p_pin_string);
-	free(p_value_location);
+	free(p_value_location);	
 }
