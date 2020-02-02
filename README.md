@@ -13,6 +13,7 @@ The driver could work on other systems but it hasn't been tested.
 
 ## Building
 All commands should be executed in the ``src`` directory.
+
 For shared and static libraries you can execute the make command:
 ```
 make
